@@ -1,6 +1,7 @@
 import serial
 from gettext import lngettext
 
+
 #Requirments Python3, pySerial 3.0
 
 class BU343S4Driver:
@@ -18,7 +19,50 @@ class BU343S4Driver:
 	# @param serialPortName, name of serial prot ex. "/dev/ttyUSB0"
 	def setup_serial_interface(self, serialPortName):
 		self.serialPort = serial.Serial(serialPortName, 4800, timeout = 5)
+	
+	def get_ascii(self,s):
+		x = 0
+		for i in range(len(s)):
+			x += ord(s[i])*2**(8 * (len(s) - i - 1))
+		return x
 		
+	# @brief validates checksum GPGGA Line
+	# @param GPGGA_Line ascii line recived from gps reciver
+	# @return True if valid checksum or False otherwise
+	def validate_checksum_GPGGA(self, GPGGA_Line):
+		checksum_val = 0
+		get_reported_check = False
+		get_reported_checkSec = False
+		reported_check_value = ""
+		chkCmpVal = 0
+		
+		for i in GPGGA_Line:
+			numVal = self.get_ascii(i)
+			
+			#get second reported checksum char
+			if get_reported_check:
+				if not get_reported_checkSec:
+					reported_check_value = i
+					get_reported_checkSec = True
+					
+				else:
+					chkCmpVal = int(reported_check_value + i, 16)
+					
+					if chkCmpVal == checksum_val:
+						return True
+					else:
+						return False
+					break
+			
+			if not get_reported_check:
+				# not equal to $, *, /r, /n 
+				if numVal != 36 and numVal != 42 and numVal != 13 and numVal != 10:
+					checksum_val = checksum_val ^ numVal
+				
+				#if at * get reported check value
+				if numVal == 42 :
+					get_reported_check = True
+					
 		
 	# @brief quiery gps for position, this must be called before accessing any get methods
 	# 
@@ -27,13 +71,13 @@ class BU343S4Driver:
 		#clear junk from buffer
 		line = self.serialPort.readline()
 		
-		#wait until GPS sends data in the GPGGA format
+		#wait until GPS sends data in the GPGGA format and GPGGA has valid checksum
 		while 1:
 			line = self.serialPort.readline()
-			strLn = line.decode("utf-8")
+			strLn = line.decode("Ascii")
 			splitline = strLn.split(',')
 			
-			if splitline[0] == str("$GPGGA"):
+			if splitline[0] == str("$GPGGA") and self.validate_checksum_GPGGA(strLn):
 				break
 		
 		
@@ -50,8 +94,6 @@ class BU343S4Driver:
 		self.altitudeAboveMeanSea = splitline[9]
 		self.heightOfGeoid = splitline[11]
 		
-		print(line)
-		print(splitline)
 	
 	
 	# @brief returns GGA - Global Positioning System fix data record type
